@@ -178,10 +178,7 @@ export function PaperProvider({ children }: PaperProviderProps) {
       }
 
       if (force) {
-        if (toastId !== undefined) {
-          toast.dismiss(toastId);
-        }
-        toast.success('Papers refreshed successfully');
+        toast.success('Papers refreshed successfully', { id: toastId });
       }
 
       setLoadingStatus(LoadingStatus.COMPLETE);
@@ -191,11 +188,8 @@ export function PaperProvider({ children }: PaperProviderProps) {
       console.error('Failed to fetch papers data:', error);
       setError(error instanceof Error ? error : new Error('Unknown error'));
       setLoadingStatus(LoadingStatus.ERROR);
-      toast.error(error instanceof Error ? error.message : 'Failed to fetch papers data');
+      toast.error(error instanceof Error ? error.message : 'Failed to fetch papers data', { id: toastId });
     } finally {
-      if (toastId !== undefined) {
-        toast.dismiss(toastId);
-      }
       setIsLoading(false);
     }
   }, [filters, isLoading]);

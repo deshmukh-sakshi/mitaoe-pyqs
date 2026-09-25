@@ -27,6 +27,7 @@ import { Paper } from "@/types/paper";
 import FadeIn from "@/components/animations/FadeIn";
 import { toast } from "sonner";
 import PDFViewer from "@/components/pdf/PDFViewer";
+import BatchProgressBar from "@/components/papers/BatchProgressBar";
 import { AnimatePresence } from "framer-motion";
 
 const SubjectPapersView = () => {
@@ -154,14 +155,6 @@ const SubjectPapersView = () => {
     return () => clearTimeout(timer);
   }, []);
 
-  // Update selected subject from URL parameter
-  useEffect(() => {
-    const subjectParam = searchParams.get("subject");
-    if (subjectParam) {
-      setSelectedSubject(subjectParam);
-    }
-  }, [searchParams]);
-
   // Get the subject parameter from URL and filter papers
   const filteredPapers = useMemo(() => {
     const subjectParam = selectedSubject;
@@ -286,12 +279,12 @@ const SubjectPapersView = () => {
     }
 
     // Synchronous check-and-add using ref to prevent race conditions
-    if (activeDownloadsRef.current.has(paper.fileName)) {
+    if (activeDownloadsRef.current.has(paper.url)) {
       return; // Already downloading
     }
 
     // Atomically add to ref
-    activeDownloadsRef.current.add(paper.fileName);
+    activeDownloadsRef.current.add(paper.url);
     
     // Update state to sync with ref
     setActiveDownloads(new Set(activeDownloadsRef.current));
@@ -306,7 +299,7 @@ const SubjectPapersView = () => {
       recordFailure();
     } finally {
       // Remove from ref
-      activeDownloadsRef.current.delete(paper.fileName);
+      activeDownloadsRef.current.delete(paper.url);
       
       // Update state to sync with ref
       setActiveDownloads(new Set(activeDownloadsRef.current));
@@ -446,14 +439,14 @@ const SubjectPapersView = () => {
                     e.stopPropagation();
                     handleDownload(paper);
                   }}
-                  disabled={activeDownloads.has(paper.fileName) || isServerDown}
+                  disabled={activeDownloads.has(paper.url) || isServerDown}
                   className="flex-1 flex items-center justify-center gap-2 bg-brand text-white rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-200 hover:bg-brand/90 focus:outline-none focus:ring-2 focus:ring-brand/50 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Download
                     size={16}
                     weight="duotone"
                     className={
-                      activeDownloads.has(paper.fileName) ? "animate-spin" : ""
+                      activeDownloads.has(paper.url) ? "animate-spin" : ""
                     }
                   />
                   <span>Download</span>
@@ -547,14 +540,14 @@ const SubjectPapersView = () => {
                     e.stopPropagation();
                     handleDownload(paper);
                   }}
-                  disabled={activeDownloads.has(paper.fileName) || isServerDown}
+                  disabled={activeDownloads.has(paper.url) || isServerDown}
                   className="flex items-center gap-2 bg-brand text-white rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-200 hover:bg-brand/90 focus:outline-none focus:ring-2 focus:ring-brand/50 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Download
                     size={16}
                     weight="duotone"
                     className={
-                      activeDownloads.has(paper.fileName) ? "animate-spin" : ""
+                      activeDownloads.has(paper.url) ? "animate-spin" : ""
                     }
                   />
                   <span className="hidden sm:inline">Download</span>
@@ -754,92 +747,6 @@ const SubjectPapersView = () => {
   const renderBatchDownloadProgress = () => {
     if (!batchDownloadProgress) return null;
 
-    const getProgressPercentage = () => {
-      if (batchDownloadProgress.percentage !== undefined) {
-        return batchDownloadProgress.percentage;
-      }
-
-      // Fallback percentages
-      if (batchDownloadProgress.status === "complete") return 100;
-      if (batchDownloadProgress.status === "error") return 0;
-      if (batchDownloadProgress.status === "preparing") return 5;
-      if (batchDownloadProgress.status === "downloading") return 30;
-      if (batchDownloadProgress.status === "processing") return 70;
-      if (batchDownloadProgress.status === "sending") return 90;
-      return 0;
-    };
-
-    const getStatusIcon = () => {
-      if (batchDownloadProgress.status === "complete") {
-        return "✓";
-      }
-      if (batchDownloadProgress.status === "error") {
-        return "✕";
-      }
-      return null;
-    };
-
-    // Calculate segment widths based on actual work distribution
-    const totalPapers = batchDownloadProgress.totalPapers || 1;
-    const cachedCount = batchDownloadProgress.cachedCount || 0;
-    const networkCount = batchDownloadProgress.networkCount || 0;
-    
-    // Allocate 85% for downloads, 10% for zip, 5% for send
-    const downloadPercent = 85;
-    const zipPercent = 10;
-    const sendPercent = 5;
-    
-    // Download phase actually spans 5→85, which is 80 points
-    const downloadSpan = 80;
-    
-    const cacheSegmentWidth = (cachedCount / totalPapers) * downloadSpan;
-    const networkSegmentWidth = (networkCount / totalPapers) * downloadSpan;
-    
-    const currentProgress = getProgressPercentage();
-    
-    // Normalize progress to the download timeline (5→85 maps to 0→1)
-    const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
-    const normalizedDownloadProgress = clamp((currentProgress - 5) / downloadSpan, 0, 1);
-    
-    // Calculate total filled percent in the download allocation (0→80 scale)
-    const totalDownloadFilledPercent = normalizedDownloadProgress * downloadSpan;
-    
-    // Calculate how much of each segment is filled - sequential completion
-    const getCacheProgress = () => {
-      if (cachedCount === 0 || cacheSegmentWidth <= 0) return 0;
-      
-      const cacheFill = clamp(totalDownloadFilledPercent / cacheSegmentWidth * 100, 0, 100);
-      return cacheFill;
-    };
-    
-    const getNetworkProgress = () => {
-      if (networkCount === 0 || networkSegmentWidth <= 0) return 0;
-      
-      // Network starts after cache segment
-      const networkFilledPercent = totalDownloadFilledPercent - cacheSegmentWidth;
-      const networkFill = clamp(networkFilledPercent / networkSegmentWidth * 100, 0, 100);
-      return networkFill;
-    };
-    
-    const getZipProgress = () => {
-      const zipStart = 85;
-      const zipEnd = 95;
-      if (currentProgress <= zipStart) return 0;
-      if (currentProgress >= zipEnd) return 100;
-      const adjustedProgress = currentProgress - zipStart;
-      const fillPercent = (adjustedProgress / zipPercent) * 100;
-      return Math.max(0, Math.min(100, fillPercent));
-    };
-    
-    const getSendProgress = () => {
-      const sendStart = 95;
-      if (currentProgress <= sendStart) return 0;
-      if (currentProgress >= 100) return 100;
-      const adjustedProgress = currentProgress - sendStart;
-      const fillPercent = (adjustedProgress / sendPercent) * 100;
-      return Math.max(0, Math.min(100, fillPercent));
-    };
-
     return (
       <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
         <div className="bg-secondary rounded-2xl p-6 sm:p-8 max-w-lg w-full shadow-2xl border border-primary/20">
@@ -869,79 +776,7 @@ const SubjectPapersView = () => {
             )}
           </div>
 
-          {/* Segmented Progress Bar */}
-          <div className="mb-4">
-            <div className="h-2.5 bg-primary/20 rounded-full overflow-hidden flex">
-              {/* Cache Segment */}
-              {cachedCount > 0 && (
-                <div 
-                  className="relative overflow-hidden"
-                  style={{ width: `${cacheSegmentWidth}%` }}
-                >
-                  <div 
-                    className="h-full bg-gradient-to-r from-cyan-400 via-blue-500 to-purple-500 transition-all duration-500 ease-out"
-                    style={{ width: `${getCacheProgress()}%` }}
-                  />
-                </div>
-              )}
-              
-              {/* Network Segment */}
-              {networkCount > 0 && (
-                <div 
-                  className="relative overflow-hidden"
-                  style={{ width: `${networkSegmentWidth}%` }}
-                >
-                  <div 
-                    className="h-full bg-gradient-to-r from-purple-500 via-pink-500 to-rose-500 transition-all duration-500 ease-out"
-                    style={{ width: `${getNetworkProgress()}%` }}
-                  />
-                </div>
-              )}
-              
-              {/* ZIP Segment */}
-              <div 
-                className="relative overflow-hidden"
-                style={{ width: `${zipPercent}%` }}
-              >
-                <div 
-                  className="h-full bg-gradient-to-r from-amber-400 via-orange-500 to-red-500 transition-all duration-500 ease-out"
-                  style={{ width: `${getZipProgress()}%` }}
-                />
-              </div>
-              
-              {/* Send Segment */}
-              <div 
-                className="relative overflow-hidden"
-                style={{ width: `${sendPercent}%` }}
-              >
-                <div 
-                  className="h-full bg-gradient-to-r from-violet-500 via-purple-600 to-fuchsia-600 transition-all duration-500 ease-out"
-                  style={{ width: `${getSendProgress()}%` }}
-                />
-              </div>
-            </div>
-            
-            {/* Progress Info */}
-            <div className="mt-3 flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2 flex-1 min-w-0">
-                <span className="text-xs sm:text-sm text-content/80 truncate">
-                  {batchDownloadProgress.currentPaper || "Processing..."}
-                </span>
-              </div>
-              <div className="flex items-center gap-2 flex-shrink-0">
-                {getStatusIcon() && (
-                  <span className={`text-base sm:text-lg ${
-                    batchDownloadProgress.status === "complete" ? "text-emerald-500" : "text-red-500"
-                  }`}>
-                    {getStatusIcon()}
-                  </span>
-                )}
-                <span className="text-xs sm:text-sm font-mono font-bold text-content">
-                  {getProgressPercentage().toFixed(0)}%
-                </span>
-              </div>
-            </div>
-          </div>
+          <BatchProgressBar progress={batchDownloadProgress} />
 
           {batchDownloadProgress.status === "error" && (
             <div className="mt-4 text-center">
@@ -956,10 +791,7 @@ const SubjectPapersView = () => {
                     completed: 0,
                     status: "preparing",
                     percentage: 0,
-                    cachedCount: 0,
-                    networkCount: 0,
                     failedCount: 0,
-                    currentPhase: 'cache',
                   });
 
                   // Small delay to show the preparing state before starting
@@ -1039,10 +871,7 @@ const SubjectPapersView = () => {
       completed: 0,
       status: "preparing",
       percentage: 0,
-      cachedCount: 0,
-      networkCount: 0,
       failedCount: 0,
-      currentPhase: 'cache',
     });
 
     // Attempt the batch download with filter information
