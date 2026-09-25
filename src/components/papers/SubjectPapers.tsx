@@ -26,23 +26,16 @@ import {
 import { Paper } from "@/types/paper";
 import FadeIn from "@/components/animations/FadeIn";
 import { toast } from "sonner";
-import { usePDFPreview } from "@/hooks/usePDFPreview";
-import PDFPreviewModal from "@/components/pdf/PDFPreviewModal";
+import PDFViewer from "@/components/pdf/PDFViewer";
+import { AnimatePresence } from "framer-motion";
 
 const SubjectPapersView = () => {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { papers, dataReady, meta } = usePapers();
   const { isServerDown, recordFailure } = useServerStatus();
-  const [selectedSubject, setSelectedSubject] = useState<string | null>(null);
-  const {
-    isOpen: isPDFOpen,
-    currentPaper,
-    papers: pdfPapers,
-    openPreview,
-    closePreview,
-    navigateToPaper,
-  } = usePDFPreview();
+  const selectedSubject = searchParams.get("subject");
+  const [previewPaper, setPreviewPaper] = useState<Paper | null>(null);
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [activeDownloads, setActiveDownloads] = useState<Set<string>>(new Set());
   // Synchronous guard to prevent race conditions on rapid clicks
@@ -171,7 +164,7 @@ const SubjectPapersView = () => {
 
   // Get the subject parameter from URL and filter papers
   const filteredPapers = useMemo(() => {
-    const subjectParam = searchParams.get("subject");
+    const subjectParam = selectedSubject;
     if (subjectParam) {
       // Filter papers by subject and remove duplicates based on fileName
       const papersBySubject = papers.filter(
@@ -212,7 +205,7 @@ const SubjectPapersView = () => {
       return uniquePapers;
     }
     return [];
-  }, [searchParams, papers, filters]);
+  }, [selectedSubject, papers, filters]);
 
   // Get unique years and exam types for filters
   const filterOptions = useMemo(() => {
@@ -220,7 +213,7 @@ const SubjectPapersView = () => {
     const examTypes = new Set<string>(["ESE", "MSE"]);
 
     // Only collect unique values from papers matching the current subject
-    const subjectParam = searchParams.get("subject");
+    const subjectParam = selectedSubject;
     if (subjectParam) {
       const subjectPapers = papers.filter(
         (paper) =>
@@ -237,7 +230,7 @@ const SubjectPapersView = () => {
       years: Array.from(years).sort((a, b) => parseInt(b) - parseInt(a)),
       examTypes: Array.from(examTypes),
     };
-  }, [searchParams, papers]);
+  }, [selectedSubject, papers]);
 
   const selectedPapersCount = useMemo(() => {
     return Object.values(selectedPapers).filter(Boolean).length;
@@ -246,6 +239,13 @@ const SubjectPapersView = () => {
   const selectedPapersArray = useMemo(() => {
     return filteredPapers.filter((paper) => selectedPapers[paper.fileName]);
   }, [filteredPapers, selectedPapers]);
+
+  const previewIndex = previewPaper
+    ? filteredPapers.findIndex((paper) => paper.url === previewPaper.url)
+    : -1;
+  const hasPreviousPaper = previewIndex > 0;
+  const hasNextPaper =
+    previewIndex >= 0 && previewIndex < filteredPapers.length - 1;
 
   const toggleViewMode = () => {
     setViewMode((prev) => (prev === "grid" ? "list" : "grid"));
@@ -318,8 +318,9 @@ const SubjectPapersView = () => {
       toast.error("Paper storage is currently unreachable. Preview is unavailable.");
       return;
     }
-    openPreview(paper, filteredPapers);
+    setPreviewPaper(paper);
   };
+
 
   const toggleFilterItem = (key: "years" | "examTypes", value: string) => {
     setFilters((prev) => {
@@ -353,8 +354,11 @@ const SubjectPapersView = () => {
   const isAnyFilterActive =
     filters.years.length > 0 || filters.examTypes.length > 0;
 
-  // Add new useEffect to update selected papers when filters change
-  useEffect(() => {
+  // Drop selections for papers that the current filters exclude
+  const [lastFilteredPapers, setLastFilteredPapers] = useState(filteredPapers);
+  if (filteredPapers !== lastFilteredPapers) {
+    setLastFilteredPapers(filteredPapers);
+
     if (isSelectMode) {
       const newSelection: Record<string, boolean> = {};
 
@@ -364,21 +368,13 @@ const SubjectPapersView = () => {
         }
       });
 
-      const currentSelectedCount = Object.keys(selectedPapers).length;
-      const newSelectedCount = Object.keys(newSelection).length;
-
-      if (currentSelectedCount !== newSelectedCount) {
+      if (
+        Object.keys(newSelection).length !== Object.keys(selectedPapers).length
+      ) {
         setSelectedPapers(newSelection);
-      } else if (currentSelectedCount > 0) {
-        const hasChanges = Object.keys(newSelection).some(
-          (key) => !selectedPapers[key]
-        );
-        if (hasChanges) {
-          setSelectedPapers(newSelection);
-        }
       }
     }
-  }, [filters, isSelectMode, filteredPapers, selectedPapers]);
+  }
 
   // Grid view
   const renderGridView = () => (
@@ -440,7 +436,7 @@ const SubjectPapersView = () => {
                     handlePreview(paper);
                   }}
                   disabled={isServerDown}
-                  className="flex-1 flex items-center justify-center gap-2 bg-gray-600 text-white rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-200 hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500/50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex-1 flex items-center justify-center gap-2 bg-accent/20 text-content rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-200 hover:bg-accent/30 focus:outline-none focus:ring-2 focus:ring-accent/50 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Eye size={16} weight="duotone" />
                   <span>Preview</span>
@@ -541,7 +537,7 @@ const SubjectPapersView = () => {
                     handlePreview(paper);
                   }}
                   disabled={isServerDown}
-                  className="flex items-center gap-2 bg-gray-600 text-white rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-200 hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500/50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex items-center gap-2 bg-accent/20 text-content rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-200 hover:bg-accent/30 focus:outline-none focus:ring-2 focus:ring-accent/50 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Eye size={16} weight="duotone" />
                   <span className="hidden sm:inline">Preview</span>
@@ -1345,15 +1341,26 @@ const SubjectPapersView = () => {
       {/* Batch download progress overlay */}
       {batchDownloadProgress && renderBatchDownloadProgress()}
 
-      {/* PDF Preview Modal */}
-      <PDFPreviewModal
-        isOpen={isPDFOpen}
-        onClose={closePreview}
-        paper={currentPaper}
-        papers={pdfPapers}
-        onNavigate={navigateToPaper}
-        onFailure={recordFailure}
-      />
+      <AnimatePresence>
+        {previewPaper && (
+          <PDFViewer
+            key="pdf-viewer"
+            paper={previewPaper}
+            onClose={() => setPreviewPaper(null)}
+            onFailure={recordFailure}
+            onPrev={
+              hasPreviousPaper
+                ? () => setPreviewPaper(filteredPapers[previewIndex - 1])
+                : undefined
+            }
+            onNext={
+              hasNextPaper
+                ? () => setPreviewPaper(filteredPapers[previewIndex + 1])
+                : undefined
+            }
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 };
