@@ -41,6 +41,7 @@ const SubjectPapersView = () => {
   const [activeDownloads, setActiveDownloads] = useState<Set<string>>(new Set());
   // Synchronous guard to prevent race conditions on rapid clicks
   const activeDownloadsRef = useRef<Set<string>>(new Set());
+  const batchCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedPapers, setSelectedPapers] = useState<Record<string, boolean>>(
     {}
@@ -767,7 +768,7 @@ const SubjectPapersView = () => {
             {(batchDownloadProgress.status === "complete" ||
               batchDownloadProgress.status === "error") && (
               <button
-                onClick={() => setBatchDownloadProgress(null)}
+                onClick={closeBatchDownloadProgress}
                 className="text-content/60 hover:text-content transition-colors p-1 ml-2 flex-shrink-0"
                 aria-label="Close"
               >
@@ -784,43 +785,7 @@ const SubjectPapersView = () => {
                 {batchDownloadProgress.error}
               </p>
               <button
-                onClick={() => {
-                  // Directly restart the batch download with the same papers
-                  setBatchDownloadProgress({
-                    totalPapers: selectedPapersArray.length,
-                    completed: 0,
-                    status: "preparing",
-                    percentage: 0,
-                    failedCount: 0,
-                  });
-
-                  // Small delay to show the preparing state before starting
-                  setTimeout(() => {
-                    batchDownloadPapers(
-                      selectedPapersArray,
-                      filters,
-                      (progress) => {
-                        setBatchDownloadProgress(progress);
-
-                        if (
-                          progress.status === "complete" ||
-                          progress.status === "error"
-                        ) {
-                          const timeoutDuration =
-                            progress.status === "error" ? 3000 : 1000;
-                          setTimeout(() => {
-                            setBatchDownloadProgress(null);
-
-                            if (progress.status === "complete") {
-                              setIsSelectMode(false);
-                              setSelectedPapers({});
-                            }
-                          }, timeoutDuration);
-                        }
-                      }
-                    );
-                  }, 300);
-                }}
+                onClick={runBatchDownload}
                 className="bg-brand text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors duration-200 hover:bg-brand/90 focus:outline-none"
               >
                 Try Again
@@ -830,6 +795,47 @@ const SubjectPapersView = () => {
         </div>
       </div>
     );
+  };
+
+  const clearBatchCloseTimer = () => {
+    if (batchCloseTimerRef.current !== null) {
+      clearTimeout(batchCloseTimerRef.current);
+      batchCloseTimerRef.current = null;
+    }
+  };
+
+  const closeBatchDownloadProgress = () => {
+    clearBatchCloseTimer();
+    setBatchDownloadProgress(null);
+  };
+
+  const runBatchDownload = async () => {
+    clearBatchCloseTimer();
+
+    setBatchDownloadProgress({
+      totalPapers: selectedPapersArray.length,
+      completed: 0,
+      status: "preparing",
+      percentage: 0,
+      failedCount: 0,
+    });
+
+    await batchDownloadPapers(selectedPapersArray, filters, (progress) => {
+      setBatchDownloadProgress(progress);
+
+      if (progress.status === "complete" || progress.status === "error") {
+        const timeoutDuration = progress.status === "error" ? 3000 : 1000;
+        batchCloseTimerRef.current = setTimeout(() => {
+          batchCloseTimerRef.current = null;
+          setBatchDownloadProgress(null);
+
+          if (progress.status === "complete") {
+            setIsSelectMode(false);
+            setSelectedPapers({});
+          }
+        }, timeoutDuration);
+      }
+    });
   };
 
   const handleBatchDownload = async () => {
@@ -865,33 +871,7 @@ const SubjectPapersView = () => {
       return;
     }
 
-    // Reset any previous progress for batch downloads
-    setBatchDownloadProgress({
-      totalPapers: selectedPapersArray.length,
-      completed: 0,
-      status: "preparing",
-      percentage: 0,
-      failedCount: 0,
-    });
-
-    // Attempt the batch download with filter information
-    await batchDownloadPapers(selectedPapersArray, filters, (progress) => {
-      setBatchDownloadProgress(progress);
-
-      // If complete or error, clear progress after a delay
-      if (progress.status === "complete" || progress.status === "error") {
-        const timeoutDuration = progress.status === "error" ? 3000 : 1000;
-        setTimeout(() => {
-          setBatchDownloadProgress(null);
-
-          // If download was successful, exit select mode
-          if (progress.status === "complete") {
-            setIsSelectMode(false);
-            setSelectedPapers({});
-          }
-        }, timeoutDuration);
-      }
-    });
+    await runBatchDownload();
   };
 
   return (

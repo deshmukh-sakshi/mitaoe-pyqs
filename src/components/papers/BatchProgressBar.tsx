@@ -14,6 +14,10 @@ export default function BatchProgressBar({ progress }: BatchProgressBarProps) {
   const value = useMotionValue(percentage);
   const scaleX = useTransform(value, [0, 100], [0, 1]);
   const percentLabel = useTransform(value, (v) => `${Math.round(v)}%`);
+  const statusText =
+    progress.status === "error"
+      ? progress.error || "Download failed"
+      : progress.currentPaper || "Processing...";
 
   useEffect(() => {
     const current = value.get();
@@ -36,7 +40,8 @@ export default function BatchProgressBar({ progress }: BatchProgressBarProps) {
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={Math.round(percentage)}
-        aria-valuetext={progress.currentPaper}
+        aria-valuetext={statusText}
+        aria-label="Batch download progress"
         className="h-2.5 overflow-hidden rounded-full bg-primary/20"
       >
         <motion.div className="h-full origin-left rounded-full bg-brand" style={{ scaleX }} />
@@ -44,7 +49,7 @@ export default function BatchProgressBar({ progress }: BatchProgressBarProps) {
 
       <div className="mt-3 flex items-center justify-between gap-2">
         <span className="min-w-0 flex-1 truncate text-xs sm:text-sm text-content/80">
-          {progress.currentPaper || "Processing..."}
+          {statusText}
         </span>
         <div className="flex flex-shrink-0 items-center gap-2">
           {progress.status === "complete" && (
